@@ -1,83 +1,97 @@
-import customtkinter as ctk
+import tkinter as tk
+from tkinter import messagebox, simpledialog, scrolledtext
 import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import datetime
+import matplotlib.pyplot as plt
 import os
 
 DATA_FILE = 'expenses.csv'
 
+# Initialize CSV file if not exists
 if not os.path.exists(DATA_FILE):
     df = pd.DataFrame(columns=['Date', 'Time', 'Vendor', 'Reason', 'Amount'])
     df.to_csv(DATA_FILE, index=False)
 
 def add_transaction():
-    vendor = vendor_entry.get()
-    reason = reason_entry.get()
-    try:
-        amount = float(amount_entry.get())
-    except:
-        status_label.configure(text="Amount must be a number!", text_color="red")
+    vendor = simpledialog.askstring("Vendor", "Enter Vendor Name:")
+    if not vendor:
         return
+    reason = simpledialog.askstring("Reason", "Enter Reason for Expense:")
+    if not reason:
+        return
+    try:
+        amount = float(simpledialog.askstring("Amount", "Enter Amount (+ for income, - for expense):"))
+    except:
+        messagebox.showerror("Invalid Input", "Amount must be a number.")
+        return
+
     now = datetime.now()
     date_str = now.strftime("%Y-%m-%d")
     time_str = now.strftime("%H:%M:%S")
+
     new_entry = pd.DataFrame([[date_str, time_str, vendor, reason, amount]],
                              columns=['Date', 'Time', 'Vendor', 'Reason', 'Amount'])
+
     df = pd.read_csv(DATA_FILE)
     df = pd.concat([df, new_entry], ignore_index=True)
     df.to_csv(DATA_FILE, index=False)
-    status_label.configure(text="Transaction Added!", text_color="green")
-    load_transactions()
+    messagebox.showinfo("Success", "Transaction Added!")
 
-def load_transactions():
+def view_transactions():
     df = pd.read_csv(DATA_FILE)
-    text_box.delete("1.0", "end")
-    text_box.insert("end", df.to_string(index=False))
+    window = tk.Toplevel(root)
+    window.title("Transaction History")
+    window.geometry("800x400")
+
+    label = tk.Label(window, text="Transaction Log", font=("Helvetica", 14, "bold"))
+    label.pack(pady=5)
+
+    text = scrolledtext.ScrolledText(window, width=100, height=20, font=("Courier New", 10))
+    text.pack(padx=10, pady=5)
+    text.insert(tk.END, df.to_string(index=False))
+    text.configure(state='disabled')
 
 def show_analysis():
     df = pd.read_csv(DATA_FILE)
     expense_df = df[df['Amount'] < 0]
     if expense_df.empty:
-        status_label.configure(text="No expenses yet to analyze!", text_color="orange")
+        messagebox.showinfo("Info", "No expenses recorded yet.")
         return
+
     grouped = expense_df.groupby('Reason')['Amount'].sum().abs()
-    grouped.plot(kind='pie', autopct='%1.1f%%')
+    grouped.plot(kind='pie', autopct='%1.1f%%', figsize=(6, 6))
     plt.title("Expense Distribution")
+    plt.ylabel("")  # Hide y-label
+    plt.tight_layout()
     plt.show()
-    biggest = grouped.idxmax()
-    status_label.configure(text=f"Biggest spending: {biggest}. Consider reducing!", text_color="blue")
 
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("green")
+    biggest_reason = grouped.idxmax()
+    suggestion = f"You spent the most on '{biggest_reason}'. Consider reducing it next month."
+    messagebox.showinfo("Suggestion", suggestion)
 
-root = ctk.CTk()
+# UI Setup
+root = tk.Tk()
 root.title("Expense Tracker")
-root.geometry("700x600")
+root.geometry("400x300")
+root.configure(bg="#f0f0f0")
 
-input_frame = ctk.CTkFrame(root)
-input_frame.pack(pady=10, padx=10, fill="x")
+header = tk.Label(root, text="Expense Tracker", font=("Helvetica", 18, "bold"), bg="#f0f0f0")
+header.pack(pady=20)
 
-vendor_entry = ctk.CTkEntry(input_frame, placeholder_text="Vendor Name")
-vendor_entry.pack(side="left", padx=5, expand=True, fill="x")
+btn_frame = tk.Frame(root, bg="#f0f0f0")
+btn_frame.pack(pady=10)
 
-reason_entry = ctk.CTkEntry(input_frame, placeholder_text="Reason")
-reason_entry.pack(side="left", padx=5, expand=True, fill="x")
+btn_style = {
+    "width": 25,
+    "height": 2,
+    "font": ("Helvetica", 12),
+    "bg": "#4CAF50",
+    "fg": "white",
+    "activebackground": "#45a049"
+}
 
-amount_entry = ctk.CTkEntry(input_frame, placeholder_text="Amount (+/-)")
-amount_entry.pack(side="left", padx=5, expand=True, fill="x")
-
-add_btn = ctk.CTkButton(input_frame, text="Add Transaction", command=add_transaction)
-add_btn.pack(side="left", padx=5)
-
-text_box = ctk.CTkTextbox(root, width=600, height=300)
-text_box.pack(pady=10)
-
-analysis_btn = ctk.CTkButton(root, text="Show Analysis", command=show_analysis)
-analysis_btn.pack(pady=5)
-
-status_label = ctk.CTkLabel(root, text="", text_color="white")
-status_label.pack(pady=5)
-
-load_transactions()
+tk.Button(btn_frame, text="Add Transaction", command=add_transaction, **btn_style).pack(pady=5)
+tk.Button(btn_frame, text="View Transactions", command=view_transactions, **btn_style).pack(pady=5)
+tk.Button(btn_frame, text="Show Analysis", command=show_analysis, **btn_style).pack(pady=5)
 
 root.mainloop()
