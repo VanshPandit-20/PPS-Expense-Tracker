@@ -1,97 +1,162 @@
+# Modern Expense Tracker App for Jupyter (Dark UI + CSV + Analysis + Budget Alerts)
+
 import tkinter as tk
-from tkinter import messagebox, simpledialog, scrolledtext
+from tkinter import filedialog, messagebox
 import pandas as pd
-from datetime import datetime
-import matplotlib.pyplot as plt
 import os
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-DATA_FILE = 'expenses.csv'
+# Initialize global variables
+user_data = {}
+transactions = pd.DataFrame(columns=['Date', 'Label', 'Amount', 'Category'])
+USER_CSV_FOLDER = 'users'
+os.makedirs(USER_CSV_FOLDER, exist_ok=True)
 
-# Initialize CSV file if not exists
-if not os.path.exists(DATA_FILE):
-    df = pd.DataFrame(columns=['Date', 'Time', 'Vendor', 'Reason', 'Amount'])
-    df.to_csv(DATA_FILE, index=False)
+# ------------------ UI Theme ------------------
+BG_COLOR = '#1e1b2e'
+FG_COLOR = '#f0e6ff'
+BTN_COLOR = '#4a3f6b'
+ENTRY_BG = '#2e294e'
+FONT = ('Helvetica', 12)
+BUDGET_LIMIT = -10000  # Default monthly expense limit
 
-def add_transaction():
-    vendor = simpledialog.askstring("Vendor", "Enter Vendor Name:")
-    if not vendor:
-        return
-    reason = simpledialog.askstring("Reason", "Enter Reason for Expense:")
-    if not reason:
-        return
+# ------------------ Core Functions ------------------
+def save_user_data(username):
+    transactions.to_csv(f'{USER_CSV_FOLDER}/{username}.csv', index=False)
+
+def load_user_data(username):
+    global transactions
     try:
-        amount = float(simpledialog.askstring("Amount", "Enter Amount (+ for income, - for expense):"))
-    except:
-        messagebox.showerror("Invalid Input", "Amount must be a number.")
-        return
+        transactions = pd.read_csv(f'{USER_CSV_FOLDER}/{username}.csv')
+    except FileNotFoundError:
+        transactions = pd.DataFrame(columns=['Date', 'Label', 'Amount', 'Category'])
 
-    now = datetime.now()
-    date_str = now.strftime("%Y-%m-%d")
-    time_str = now.strftime("%H:%M:%S")
+def calculate_balance():
+    return transactions['Amount'].sum()
 
-    new_entry = pd.DataFrame([[date_str, time_str, vendor, reason, amount]],
-                             columns=['Date', 'Time', 'Vendor', 'Reason', 'Amount'])
+def check_budget_alert():
+    this_month = pd.Timestamp.now().month
+    this_year = pd.Timestamp.now().year
+    monthly_expenses = transactions[
+        (pd.to_datetime(transactions['Date']).dt.month == this_month) &
+        (pd.to_datetime(transactions['Date']).dt.year == this_year) &
+        (transactions['Amount'] < 0)
+    ]['Amount'].sum()
+    if monthly_expenses <= BUDGET_LIMIT:
+        messagebox.showwarning("Budget Alert", f"You've exceeded your monthly budget of ₹{-BUDGET_LIMIT}. Current expenses: ₹{abs(monthly_expenses):.2f}")
 
-    df = pd.read_csv(DATA_FILE)
-    df = pd.concat([df, new_entry], ignore_index=True)
-    df.to_csv(DATA_FILE, index=False)
-    messagebox.showinfo("Success", "Transaction Added!")
+# ------------------ UI Functions ------------------
+def login_window():
+    login = tk.Tk()
+    login.title("Login")
+    login.configure(bg=BG_COLOR)
 
-def view_transactions():
-    df = pd.read_csv(DATA_FILE)
-    window = tk.Toplevel(root)
-    window.title("Transaction History")
-    window.geometry("800x400")
+    tk.Label(login, text="Username", bg=BG_COLOR, fg=FG_COLOR, font=FONT).pack(pady=5)
+    username_entry = tk.Entry(login, bg=ENTRY_BG, fg=FG_COLOR, font=FONT)
+    username_entry.pack(pady=5)
 
-    label = tk.Label(window, text="Transaction Log", font=("Helvetica", 14, "bold"))
-    label.pack(pady=5)
+    def handle_login():
+        username = username_entry.get()
+        if not username:
+            messagebox.showerror("Error", "Username required")
+            return
+        global user_data
+        user_data['username'] = username
+        load_user_data(username)
+        login.destroy()
+        main_menu()
 
-    text = scrolledtext.ScrolledText(window, width=100, height=20, font=("Courier New", 10))
-    text.pack(padx=10, pady=5)
-    text.insert(tk.END, df.to_string(index=False))
-    text.configure(state='disabled')
+    tk.Button(login, text="Login / Register", bg=BTN_COLOR, fg=FG_COLOR, command=handle_login, font=FONT).pack(pady=10)
+    login.mainloop()
 
-def show_analysis():
-    df = pd.read_csv(DATA_FILE)
-    expense_df = df[df['Amount'] < 0]
-    if expense_df.empty:
-        messagebox.showinfo("Info", "No expenses recorded yet.")
-        return
+def main_menu():
+    root = tk.Tk()
+    root.title("Expense Tracker")
+    root.configure(bg=BG_COLOR)
 
-    grouped = expense_df.groupby('Reason')['Amount'].sum().abs()
-    grouped.plot(kind='pie', autopct='%1.1f%%', figsize=(6, 6))
-    plt.title("Expense Distribution")
-    plt.ylabel("")  # Hide y-label
-    plt.tight_layout()
-    plt.show()
+    balance = calculate_balance()
+    tk.Label(root, text=f"Welcome {user_data['username']} | Balance: ₹{balance:.2f}", bg=BG_COLOR, fg=FG_COLOR, font=('Helvetica', 14, 'bold')).pack(pady=10)
 
-    biggest_reason = grouped.idxmax()
-    suggestion = f"You spent the most on '{biggest_reason}'. Consider reducing it next month."
-    messagebox.showinfo("Suggestion", suggestion)
+    def add_transaction():
+        window = tk.Toplevel(root)
+        window.title("Add Transaction")
+        window.configure(bg=BG_COLOR)
 
-# UI Setup
-root = tk.Tk()
-root.title("Expense Tracker")
-root.geometry("400x300")
-root.configure(bg="#f0f0f0")
+        tk.Label(window, text="Label", bg=BG_COLOR, fg=FG_COLOR, font=FONT).pack()
+        label_entry = tk.Entry(window, bg=ENTRY_BG, fg=FG_COLOR, font=FONT)
+        label_entry.pack()
 
-header = tk.Label(root, text="Expense Tracker", font=("Helvetica", 18, "bold"), bg="#f0f0f0")
-header.pack(pady=20)
+        tk.Label(window, text="Amount (+income / -expense)", bg=BG_COLOR, fg=FG_COLOR, font=FONT).pack()
+        amount_entry = tk.Entry(window, bg=ENTRY_BG, fg=FG_COLOR, font=FONT)
+        amount_entry.pack()
 
-btn_frame = tk.Frame(root, bg="#f0f0f0")
-btn_frame.pack(pady=10)
+        tk.Label(window, text="Category", bg=BG_COLOR, fg=FG_COLOR, font=FONT).pack()
+        category_entry = tk.Entry(window, bg=ENTRY_BG, fg=FG_COLOR, font=FONT)
+        category_entry.pack()
 
-btn_style = {
-    "width": 25,
-    "height": 2,
-    "font": ("Helvetica", 12),
-    "bg": "#4CAF50",
-    "fg": "white",
-    "activebackground": "#45a049"
-}
+        def save():
+            try:
+                amt = float(amount_entry.get())
+                new_row = {
+                    'Date': pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'Label': label_entry.get(),
+                    'Amount': amt,
+                    'Category': category_entry.get()
+                }
+                global transactions
+                transactions = pd.concat([transactions, pd.DataFrame([new_row])], ignore_index=True)
+                save_user_data(user_data['username'])
+                window.destroy()
+                check_budget_alert()
+            except ValueError:
+                messagebox.showerror("Invalid Input", "Amount must be a number")
 
-tk.Button(btn_frame, text="Add Transaction", command=add_transaction, **btn_style).pack(pady=5)
-tk.Button(btn_frame, text="View Transactions", command=view_transactions, **btn_style).pack(pady=5)
-tk.Button(btn_frame, text="Show Analysis", command=show_analysis, **btn_style).pack(pady=5)
+        tk.Button(window, text="Save", command=save, bg=BTN_COLOR, fg=FG_COLOR, font=FONT).pack(pady=10)
 
-root.mainloop()
+    def view_transactions():
+        window = tk.Toplevel(root)
+        window.title("Transaction History")
+        window.configure(bg=BG_COLOR)
+
+        sorted_data = transactions.sort_values('Date', ascending=False)
+
+        text = tk.Text(window, bg=ENTRY_BG, fg=FG_COLOR, font=('Courier', 10))
+        text.pack()
+        text.insert(tk.END, sorted_data.to_string(index=False))
+
+        fig, ax = plt.subplots(figsize=(6, 3))
+        sorted_data['Date'] = pd.to_datetime(sorted_data['Date'])
+        sorted_data.groupby(sorted_data['Date'].dt.date)['Amount'].sum().plot(kind='bar', ax=ax, color='purple')
+        ax.set_title('Daily Net Transactions')
+        ax.set_ylabel('Amount')
+        canvas = FigureCanvasTkAgg(fig, master=window)
+        canvas.draw()
+        canvas.get_tk_widget().pack()
+
+    def show_analysis():
+        window = tk.Toplevel(root)
+        window.title("Spending Analysis")
+        window.configure(bg=BG_COLOR)
+
+        expenses = transactions[transactions['Amount'] < 0]
+        grouped = expenses.groupby('Category')['Amount'].sum()
+
+        fig, ax = plt.subplots()
+        grouped.plot(kind='pie', autopct='%1.1f%%', ax=ax, startangle=90)
+        ax.set_ylabel('')
+        ax.set_title('Expense Breakdown by Category')
+
+        canvas = FigureCanvasTkAgg(fig, master=window)
+        canvas.draw()
+        canvas.get_tk_widget().pack()
+
+    tk.Button(root, text="Add Transaction", command=add_transaction, bg=BTN_COLOR, fg=FG_COLOR, font=FONT).pack(pady=5)
+    tk.Button(root, text="View Transactions", command=view_transactions, bg=BTN_COLOR, fg=FG_COLOR, font=FONT).pack(pady=5)
+    tk.Button(root, text="Show Analysis", command=show_analysis, bg=BTN_COLOR, fg=FG_COLOR, font=FONT).pack(pady=5)
+    tk.Button(root, text="Exit", command=root.destroy, bg='red', fg='white', font=FONT).pack(pady=10)
+
+    root.mainloop()
+
+# ------------------ Run App ------------------
+login_window()
